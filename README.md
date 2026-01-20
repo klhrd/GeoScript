@@ -33,29 +33,15 @@
     └── fulltest.geo    # 完整語法測試集
 ```
 
-## **📖 GeoScript 語法速查**
+**範例檔案清單：**
 
-| 指令 | 範例 | 說明 |
-| :---- | :---- | :---- |
-| **Point** | P = (0, 0) | 建立座標點 |
-| **Line** | L = Line(A, B) | 通過 A, B 的直線 |
-| **Circle** | C = Circle(O, 5) | 圓心 O，半徑 5 |
-| **Polygon** | T = Polygon(A, B, C) | 建立多邊形 |
-| **Midpoint** | M = Midpoint(A, B) | 取中點 |
-| **Intersect** | P = Intersect(L1, L2) | 取交點 |
-| **Rotate** | P' = Rotate(P, 45, O) | 以 O 為中心旋轉 45 度 |
-
-**樣式設定：**
-
-```
-// 在指令後方加入 { ... }  
-C1 = Circle(O, 5) {   
-    color: "red",   
-    fillColor: "rgba(255,0,0,0.1)",   
-    width: 2,   
-    style: "dashed"   
-}
-```
+| 檔名 | 說明 |
+| :---- | :---- |
+| basic.geo | **基礎範本**。預設的初始畫面，包含原點與一個簡單的圓，適合新手入門。 |
+| ninepoint.geo | **九點圓定理** (Nine-Point Circle)。展示如何計算中點、垂足、垂心與歐拉點，並驗證它們共圓。 |
+| simson.geo | **西姆松線** (Simson Line)。展示動點 PointOn 與軌跡功能，驗證外接圓上動點的垂足共線。 |
+| visual.geo | **幾何花朵**。展示 Rotate (旋轉) 與幾何變換在藝術圖形生成的應用。 |
+| fulltest.geo | **完整語法測試**。包含所有支援指令的綜合測試集，用於驗證編譯器功能與樣式渲染。 |
 
 ## **📝 版本紀錄**
 
@@ -63,3 +49,5 @@ C1 = Circle(O, 5) {
 * **v2.3.1**: 修復顏色填充與透明度問題，優化標籤避讓算法。  
 * **v2.3.0**: 新增智慧標籤系統，修復樣式隔離渲染。  
 * **v2.2.x**: 核心數學庫大升級 (Arc, Sector, Tangent, Centers...)。
+
+

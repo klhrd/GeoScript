@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GeoScript Compiler v2.3.2 (GitHub Pages Edition)</title>
+    <title>GeoScript Compiler v2.3.3 (Interactive Input)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -46,6 +46,8 @@
         /* --- Canvas Area --- */
         #geoCanvas { cursor: grab; background: #ffffff; width: 100%; height: 100%; touch-action: none; }
         #geoCanvas:active { cursor: grabbing; }
+        /* Special cursor for adding points */
+        #geoCanvas.add-mode { cursor: crosshair !important; }
 
         /* --- UI Elements --- */
         .resizer { width: 4px; background: #334155; cursor: col-resize; z-index: 10; transition: background 0.2s; }
@@ -90,7 +92,7 @@
             <div class="flex items-center gap-2 mr-2">
                 <i class="fas fa-shapes text-blue-400 text-sm"></i>
                 <span class="font-bold text-slate-200 text-sm tracking-wide">GeoScript</span>
-                <span class="text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">v2.3.2</span>
+                <span class="text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">v2.3.3</span>
             </div>
 
             <div class="h-4 w-px bg-slate-700 mx-1"></div>
@@ -101,7 +103,7 @@
             </button>
 
             <!-- Menus -->
-            <!-- 1. Demonstration Menu (Load from files) -->
+            <!-- 1. Demonstration Menu -->
             <div class="relative group">
                 <button onclick="toggleMenu('demo-menu')" class="menu-btn px-2.5 py-1 hover:bg-slate-700 text-slate-300 hover:text-white rounded-sm text-xs flex items-center transition gap-1">
                     <i class="fas fa-folder-open text-orange-400"></i> 示範 <i class="fas fa-chevron-down text-[8px] opacity-50 ml-1"></i>
@@ -158,7 +160,7 @@
                 <div class="editor-scroll-area">
                     <div id="line-numbers" class="line-numbers"></div>
                     <pre id="code-highlight"></pre>
-                    <textarea id="code-input" spellcheck="false" placeholder="// 正在讀取..."></textarea>
+                    <textarea id="code-input" spellcheck="false" placeholder="// Start typing GeoScript..."></textarea>
                     <div id="autocomplete" class="autocomplete-box"></div>
                 </div>
             </div>
@@ -171,48 +173,33 @@
         <div class="flex-1 relative bg-gray-50 overflow-hidden">
             <canvas id="geoCanvas"></canvas>
             <div class="absolute bottom-1 left-2 text-[10px] text-slate-500 font-mono tracking-tight pointer-events-none bg-white/50 px-1 rounded" id="coords-display">x: 0.00, y: 0.00</div>
-            <div class="absolute bottom-3 right-3 bg-white/90 backdrop-blur px-2 py-1 rounded shadow-sm text-[10px] text-slate-500 pointer-events-none border border-slate-200">Pan: Drag | Zoom: Scroll</div>
+            <div class="absolute bottom-3 right-3 bg-white/90 backdrop-blur px-2 py-1 rounded shadow-sm text-[10px] text-slate-500 pointer-events-none border border-slate-200">
+                <span class="mr-2"><i class="fas fa-mouse-pointer mr-1"></i>Shift+Click to Add Point</span>
+                <span class="opacity-50">|</span>
+                <span class="ml-2">Pan: Drag | Zoom: Scroll</span>
+            </div>
         </div>
     </div>
 
 <script>
 /**
- * GeoScript Compiler v2.3.2 - External Files & App Console
+ * GeoScript Compiler v2.3.3 - Click Interaction
  */
 
-// --- 1. Settings (Auto Run Enabled by Default) ---
+// --- 1. Settings ---
 const SETTINGS = { autoRun: true, hideConsole: false, boldPoints: false };
 
 // --- 2. Console Helper ---
-// Redirect output to the in-app console div
 function appConsole(msg, type='info') {
     if (SETTINGS.hideConsole) return;
     const div = document.getElementById('console-output');
     const entry = document.createElement('div');
-    
-    if (type === 'error') {
-        entry.style.color = '#f87171'; // Red
-        entry.innerText = `✖ ${msg}`;
-    } else if (type === 'success') {
-        entry.style.color = '#4ade80'; // Green
-        entry.innerText = `✔ ${msg}`;
-    } else if (type === 'warn') {
-        entry.style.color = '#facc15'; // Yellow
-        entry.innerText = `⚠ ${msg}`;
-    } else {
-        entry.style.color = '#94a3b8'; // Gray
-        entry.innerText = `> ${msg}`;
-    }
-    
-    div.appendChild(entry);
-    div.scrollTop = div.scrollHeight;
+    if (type === 'error') { entry.style.color = '#f87171'; entry.innerText = `✖ ${msg}`; }
+    else if (type === 'success') { entry.style.color = '#4ade80'; entry.innerText = `✔ ${msg}`; }
+    else { entry.style.color = '#94a3b8'; entry.innerText = `> ${msg}`; }
+    div.appendChild(entry); div.scrollTop = div.scrollHeight;
 }
-
-// Clear console
-function clearAppConsole() {
-    const div = document.getElementById('console-output');
-    div.innerHTML = '';
-}
+function clearAppConsole() { document.getElementById('console-output').innerHTML = ''; }
 
 // --- 3. Math Library ---
 const PI = Math.PI, EPSILON = 1e-10;
@@ -322,11 +309,10 @@ class Parser {
         for (let i = 0; i < this.lines.length; i++) {
             let line = this.lines[i].trim().split('//')[0].split('/*')[0].trim();
             if (!line) continue;
-            try { this.parseStatement(line); } catch (e) { 
-                if (!SETTINGS.autoRun) appConsole(`Line ${i+1}: ${e.message}`, 'error'); 
-            }
+            try { this.parseStatement(line); } 
+            catch (e) { if (!SETTINGS.autoRun) appConsole(`Line ${i+1}: ${e.message}`, 'error'); }
         }
-        OBJECTS.sort((a, b) => (a.layer || 0) - (b.layer || 0));
+        OBJECTS.sort((a, b) => (a.layer || 0) - (b.layer || 0)); 
         return OBJECTS;
     }
     parseStatement(line) {
@@ -383,8 +369,6 @@ class Parser {
     execFunc(name, args) {
         const v = args.map(a => (a && a.type === 'number') ? a.value : a);
         const n = name.toLowerCase();
-        
-        // Primitives
         if (n === 'point') return { type: 'point', x: v[0], y: v[1] };
         if (n === 'line') return { type: 'line', p1: v[0], p2: v[1] };
         if (n === 'segment') return { type: 'segment', p1: v[0], p2: v[1] };
@@ -404,8 +388,6 @@ class Parser {
             return { type: 'arc', center: v[0], startPoint: v[1], endPoint: v[2], r: GMath.dist(v[0], v[1]) };
         }
         if (n === 'sector') return { type: 'sector', center: v[0], startPoint: v[1], endPoint: v[2], r: GMath.dist(v[0], v[1]) };
-        
-        // Ops
         if (n === 'midpoint') return { type: 'point', ...GMath.midpoint(v[0], v[1]) };
         if (n === 'intersect') return { type: 'point', ...GMath.intersect(v[0], v[1]) };
         if (n === 'project') return { type: 'point', ...GMath.project(v[0], v[1]) };
@@ -454,7 +436,6 @@ function s2w(sx, sy) { return { x: (sx - camera.x) / camera.zoom, y: -(sy - came
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     placedLabels = []; 
-    // Grid
     const o = w2s(0,0);
     ctx.beginPath(); ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
     ctx.moveTo(o.x, 0); ctx.lineTo(o.x, canvas.height); ctx.moveTo(0, o.y); ctx.lineTo(canvas.width, o.y); ctx.stroke();
@@ -543,7 +524,12 @@ function drawArc(a) {
     if (a.startPoint) {
         const s = w2s(a.startPoint.x, a.startPoint.y), e = w2s(a.endPoint.x, a.endPoint.y);
         sa = Math.atan2(s.y - pos.y, s.x - pos.x); ea = Math.atan2(e.y - pos.y, e.x - pos.x);
-        ctx.beginPath(); ctx.arc(pos.x, pos.y, r, sa, ea, true);
+        if (a.midPoint) {
+            const m = w2s(a.midPoint.x, a.midPoint.y); 
+            ctx.beginPath(); ctx.arc(pos.x, pos.y, r, sa, ea, true);
+        } else {
+            ctx.beginPath(); ctx.arc(pos.x, pos.y, r, sa, ea, true);
+        }
     } else {
         ctx.beginPath(); ctx.arc(pos.x, pos.y, r, 0, PI*2);
     }
@@ -570,9 +556,16 @@ function drawVector(v) {
 }
 
 function drawSmartLabel(obj) {
-    if (!obj || typeof obj.x !== 'number' && !obj.center) return;
-    let p = obj.center || obj;
+    let p = {x:0, y:0};
+    if (obj.type === 'point') p = obj;
+    else if (obj.type === 'circle') p = { x: obj.center.x + obj.r*0.7, y: obj.center.y + obj.r*0.7 };
+    else if (obj.type === 'midpoint') p = obj;
+    else if (obj.type === 'segment') p = GMath.midpoint(obj.p1, obj.p2);
+    else return;
+    
+    if (!p || typeof p.x !== 'number') return;
     const s = w2s(p.x, p.y);
+    
     ctx.font = "bold 12px sans-serif";
     const tm = ctx.measureText(obj.label), w = tm.width, h = 12;
     const offsets = [{x: 10, y: -10}, {x: -10-w, y: -10}, {x: 10, y: 18}, {x: -10-w, y: 18}, {x: 0, y: -18}, {x: 0, y: 22}, {x: 12, y: 4}, {x: -12-w, y: 4}];
@@ -601,18 +594,12 @@ const KEYWORDS = ['Point','Line','Segment','Ray','Vector','Circle','Polygon','Mi
 async function loadExample(filename) {
     try {
         appConsole(`Loading ${filename}...`);
-        // If it's a fresh load (basic.geo), don't error loudly if missing, just use default string
         if (filename === 'basic.geo') {
              try {
                  const r = await fetch(`./examples/${filename}`);
-                 if(r.ok) {
-                     input.value = await r.text();
-                 } else {
-                     input.value = `// Welcome to GeoScript\n// Start typing to create geometry...\n\nP1 = Point(0, 0) { label: "Origin" }`;
-                 }
-             } catch(e) {
-                 input.value = `// Welcome to GeoScript\n// Start typing to create geometry...\n\nP1 = Point(0, 0) { label: "Origin" }`;
-             }
+                 if(r.ok) input.value = await r.text();
+                 else input.value = `// Welcome to GeoScript\n// Start typing to create geometry...\n\nP1 = Point(0, 0) { label: "Origin" }`;
+             } catch(e) { input.value = `// Welcome to GeoScript\n// Start typing to create geometry...\n\nP1 = Point(0, 0) { label: "Origin" }`; }
         } else {
             const response = await fetch(`./examples/${filename}`);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -623,7 +610,6 @@ async function loadExample(filename) {
         compile();
     } catch (e) {
         appConsole(`Failed to load ${filename}: ${e.message}`, 'error');
-        // If it was a user click, alert them
         if(filename !== 'basic.geo') alert(`Could not load example: ${filename}\nEnsure you are running on a server (Live Server/GitHub Pages)`);
     }
 }
@@ -681,21 +667,53 @@ window.addEventListener('click', e => { if(!e.target.closest('.group')) document
 function downloadImage() { const l = document.createElement('a'); l.download = 'geo.png'; l.href = canvas.toDataURL(); l.click(); }
 function downloadSVG() { alert("SVG export not implemented in this view."); }
 
+// --- Mouse Events (Click to Add Point) ---
 const editorWrapper = document.querySelector('.editor-wrapper');
+let shiftHeld = false;
+
+// Track Shift key for cursor change
+window.addEventListener('keydown', e => { if(e.key === 'Shift') { shiftHeld = true; canvas.classList.add('add-mode'); } });
+window.addEventListener('keyup', e => { if(e.key === 'Shift') { shiftHeld = false; canvas.classList.remove('add-mode'); } });
+
 resizer.addEventListener('mousedown', () => { isResizing = true; document.body.style.cursor = 'col-resize'; });
 window.addEventListener('mouseup', () => { isResizing = false; document.body.style.cursor = 'default'; isDragging = false; });
 window.addEventListener('mousemove', e => { 
     if(isResizing){ editorWrapper.style.width = (e.clientX/window.innerWidth)*100+'%'; resizeCanvas(); }
     if(isDragging){ camera.x+=e.clientX-lastMouse.x; camera.y+=e.clientY-lastMouse.y; lastMouse={x:e.clientX,y:e.clientY}; draw(); }
 });
-canvas.addEventListener('mousedown', e => { isDragging = true; lastMouse = { x: e.clientX, y: e.clientY }; });
+
+// Canvas Interactions
+canvas.addEventListener('mousedown', e => {
+    // If Shift is held, prepare for click-to-add (don't drag)
+    if (e.shiftKey) { return; }
+    isDragging = true; lastMouse = { x: e.clientX, y: e.clientY };
+});
+
+canvas.addEventListener('mouseup', e => {
+    // If Shift is held and it was a click (not a drag end)
+    if (e.shiftKey) {
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const w = s2w(mx, my); // Screen to World
+        
+        // Append new point code
+        const id = Math.floor(Date.now() % 10000); // Simple unique ID
+        const newCode = `\nP_${id} = (${w.x.toFixed(2)}, ${w.y.toFixed(2)}) { color: "red", label: "P_${id}" }`;
+        
+        input.value += newCode;
+        updateEditor();
+        compile();
+        appConsole(`Added point P_${id} at (${w.x.toFixed(2)}, ${w.y.toFixed(2)})`);
+    }
+    isDragging = false;
+});
+
 canvas.addEventListener('wheel', e => { e.preventDefault(); const z = Math.exp((e.deltaY<0?1:-1)*0.1); camera.x-=(e.clientX-canvas.getBoundingClientRect().left-camera.x)*(z-1); camera.y-=(e.clientY-canvas.getBoundingClientRect().top-camera.y)*(z-1); camera.zoom*=z; draw(); }, { passive: false });
 
 // Init
 window.onload = () => { 
-    // Setup Checkboxes UI based on default settings
     if(SETTINGS.autoRun) document.getElementById('check-autoRun').classList.add('checked');
-    
     resizeCanvas(); 
     window.addEventListener('resize', resizeCanvas); 
     loadExample('basic.geo'); 
