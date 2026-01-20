@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoScript Compiler v2.3.2 (GitHub Pages Edition)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* --- Core Layout & Reset --- */
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0f172a; color: #e2e8f0; font-family: 'Segoe UI', system-ui, sans-serif; }
+        
+        /* --- Editor Area --- */
+        .editor-container { position: relative; height: 100%; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; line-height: 22px; display: flex; flex-direction: column; }
+        .editor-scroll-area { position: relative; flex: 1; overflow: hidden; }
+
+        /* Input & Highlight */
+        #code-input, #code-highlight {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            padding: 10px 10px 10px 45px;
+            font-family: inherit; font-size: inherit; line-height: inherit;
+            white-space: pre; overflow: auto;
+        }
+        #code-input { background: transparent; color: transparent; caret-color: #fff; border: none; resize: none; outline: none; z-index: 2; }
+        #code-highlight { background: #1e1e1e; color: #d4d4d4; z-index: 1; pointer-events: none; }
+
+        /* Line Numbers */
+        .line-numbers {
+            position: absolute; top: 0; left: 0; width: 35px; height: 100%;
+            background: #252526; color: #858585; text-align: right; padding: 10px 5px 10px 0;
+            z-index: 3; overflow: hidden; font-family: inherit; font-size: inherit; line-height: inherit;
+            border-right: 1px solid #333; user-select: none;
+        }
+        .line-number-item { cursor: pointer; transition: color 0.2s; }
+        .line-number-item:hover { color: #fff; }
+
+        /* Syntax Colors */
+        .tok-keyword { color: #569cd6; font-weight: bold; }
+        .tok-function { color: #dcdcaa; }
+        .tok-number { color: #b5cea8; }
+        .tok-string { color: #ce9178; }
+        .tok-comment { color: #6b7280; font-style: italic; }
+        .tok-var { color: #9cdcfe; }
+        .tok-prop { color: #c586c0; }
+
+        /* --- Canvas Area --- */
+        #geoCanvas { cursor: grab; background: #ffffff; width: 100%; height: 100%; touch-action: none; }
+        #geoCanvas:active { cursor: grabbing; }
+
+        /* --- UI Elements --- */
+        .resizer { width: 4px; background: #334155; cursor: col-resize; z-index: 10; transition: background 0.2s; }
+        .resizer:hover, .resizer.dragging { background: #3b82f6; }
+        
+        .autocomplete-box {
+            position: absolute; background: #252526; border: 1px solid #454545;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 20; display: none;
+            max-height: 200px; overflow-y: auto; width: 200px;
+        }
+        .suggestion-item { padding: 4px 8px; cursor: pointer; color: #ccc; font-size: 12px; display: flex; justify-content: space-between;}
+        .suggestion-item:hover, .suggestion-item.active { background: #094771; color: white; }
+        .suggestion-type { font-size: 10px; opacity: 0.7; align-self: center; border: 1px solid #555; padding: 0 2px; border-radius: 2px; }
+
+        /* Dropdown Styles */
+        .dropdown-content { display: none; position: absolute; top: 100%; left: 0; min-width: 180px; background-color: #1e293b; border: 1px solid #334155; border-radius: 0.25rem; z-index: 50; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5); }
+        .dropdown-content.show { display: block; }
+        .dropdown-item { display: flex; align-items: center; width: 100%; padding: 0.5rem 0.75rem; font-size: 0.75rem; color: #cbd5e1; text-align: left; transition: background-color 0.1s; }
+        .dropdown-item:hover { background-color: #334155; color: #fff; }
+        .dropdown-item i { width: 16px; margin-right: 8px; text-align: center; }
+        .dropdown-divider { height: 1px; background-color: #334155; margin: 4px 0; }
+        
+        /* Toggle Checkbox */
+        .toggle-checkbox { margin-left: auto; width: 24px; height: 12px; background: #475569; border-radius: 10px; position: relative; }
+        .toggle-checkbox.checked { background: #22c55e; }
+        .toggle-checkbox::after { content: ''; position: absolute; top: 1px; left: 1px; width: 10px; height: 10px; background: white; border-radius: 50%; transition: transform 0.2s; }
+        .toggle-checkbox.checked::after { transform: translateX(12px); }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1e1e1e; }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
+</head>
+<body class="flex flex-col h-screen">
+
+    <!-- Header / Toolbar -->
+    <header class="flex items-center justify-between px-3 bg-slate-900 border-b border-slate-700 h-9 shrink-0 z-40 relative select-none shadow-sm">
+        <div class="flex items-center gap-2">
+            <!-- Title -->
+            <div class="flex items-center gap-2 mr-2">
+                <i class="fas fa-shapes text-blue-400 text-sm"></i>
+                <span class="font-bold text-slate-200 text-sm tracking-wide">GeoScript</span>
+                <span class="text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">v2.3.2</span>
+            </div>
+
+            <div class="h-4 w-px bg-slate-700 mx-1"></div>
+
+            <!-- Run Button -->
+            <button onclick="compile()" class="px-3 py-1 bg-green-700 hover:bg-green-600 text-green-100 rounded-sm text-xs flex items-center transition gap-1.5 border border-green-800 shadow-sm mr-2">
+                <i class="fas fa-play text-[10px]"></i> RUN
+            </button>
+
+            <!-- Menus -->
+            <!-- 1. Demonstration Menu (Load from files) -->
+            <div class="relative group">
+                <button onclick="toggleMenu('demo-menu')" class="menu-btn px-2.5 py-1 hover:bg-slate-700 text-slate-300 hover:text-white rounded-sm text-xs flex items-center transition gap-1">
+                    <i class="fas fa-folder-open text-orange-400"></i> 示範 <i class="fas fa-chevron-down text-[8px] opacity-50 ml-1"></i>
+                </button>
+                <div id="demo-menu" class="dropdown-content">
+                    <button onclick="loadExample('basic.geo')" class="dropdown-item"><i class="fas fa-file text-gray-400"></i> 基礎範例 (Basic)</button>
+                    <button onclick="loadExample('ninepoint.geo')" class="dropdown-item"><i class="fas fa-circle-nodes text-orange-400"></i> 九點圓 (Nine-Point)</button>
+                    <button onclick="loadExample('simson.geo')" class="dropdown-item"><i class="fas fa-draw-polygon text-blue-400"></i> 西姆松線 (Simson)</button>
+                    <button onclick="loadExample('visual.geo')" class="dropdown-item"><i class="fas fa-fan text-pink-400"></i> 幾何花朵 (Flower)</button>
+                    <div class="dropdown-divider"></div>
+                    <button onclick="loadExample('fulltest.geo')" class="dropdown-item"><i class="fas fa-vial text-purple-400"></i> 完整語法測試 (Full)</button>
+                </div>
+            </div>
+
+            <!-- 2. Settings Menu -->
+            <div class="relative group">
+                <button onclick="toggleMenu('settings-menu')" class="menu-btn px-2.5 py-1 hover:bg-slate-700 text-slate-300 hover:text-white rounded-sm text-xs flex items-center transition gap-1">
+                    <i class="fas fa-sliders text-blue-400"></i> 設定 <i class="fas fa-chevron-down text-[8px] opacity-50 ml-1"></i>
+                </button>
+                <div id="settings-menu" class="dropdown-content">
+                    <button onclick="toggleSetting('autoRun')" class="dropdown-item">
+                        <i class="fas fa-bolt text-yellow-400"></i> 自動執行
+                        <div id="check-autoRun" class="toggle-checkbox"></div>
+                    </button>
+                    <button onclick="toggleSetting('hideConsole')" class="dropdown-item">
+                        <i class="fas fa-terminal text-gray-400"></i> 隱藏 Console
+                        <div id="check-hideConsole" class="toggle-checkbox"></div>
+                    </button>
+                    <div class="dropdown-divider"></div>
+                    <button onclick="toggleSetting('boldPoints')" class="dropdown-item">
+                        <i class="fas fa-circle text-red-400"></i> 強化點顯示
+                        <div id="check-boldPoints" class="toggle-checkbox"></div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 3. Export Menu -->
+            <div class="relative group">
+                <button onclick="toggleMenu('export-menu')" class="menu-btn px-2.5 py-1 hover:bg-slate-700 text-slate-300 hover:text-white rounded-sm text-xs flex items-center transition gap-1">
+                    <i class="fas fa-file-export text-green-400"></i> 輸出 <i class="fas fa-chevron-down text-[8px] opacity-50 ml-1"></i>
+                </button>
+                <div id="export-menu" class="dropdown-content">
+                    <button onclick="downloadImage()" class="dropdown-item"><i class="fas fa-image text-blue-300"></i> 下載 PNG</button>
+                    <button onclick="downloadSVG()" class="dropdown-item"><i class="fas fa-bezier-curve text-yellow-300"></i> 下載 SVG</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="flex flex-1 overflow-hidden" id="workspace">
+        <div class="editor-wrapper relative flex flex-col min-w-[200px]" style="width: 40%;">
+            <div class="editor-container flex-1 bg-[#1e1e1e]">
+                <div class="editor-scroll-area">
+                    <div id="line-numbers" class="line-numbers"></div>
+                    <pre id="code-highlight"></pre>
+                    <textarea id="code-input" spellcheck="false" placeholder="// 正在讀取..."></textarea>
+                    <div id="autocomplete" class="autocomplete-box"></div>
+                </div>
+            </div>
+            <!-- App Console -->
+            <div class="h-28 bg-[#1e1e1e] border-t border-slate-700 p-2 overflow-y-auto font-mono text-[11px] shrink-0 text-slate-400 leading-4" id="console-output">
+                <div class="text-slate-500 mb-1">GeoScript Compiler Ready.</div>
+            </div>
+        </div>
+        <div class="resizer" id="resizer"></div>
+        <div class="flex-1 relative bg-gray-50 overflow-hidden">
+            <canvas id="geoCanvas"></canvas>
+            <div class="absolute bottom-1 left-2 text-[10px] text-slate-500 font-mono tracking-tight pointer-events-none bg-white/50 px-1 rounded" id="coords-display">x: 0.00, y: 0.00</div>
+            <div class="absolute bottom-3 right-3 bg-white/90 backdrop-blur px-2 py-1 rounded shadow-sm text-[10px] text-slate-500 pointer-events-none border border-slate-200">Pan: Drag | Zoom: Scroll</div>
+        </div>
+    </div>
+
+<script>
+/**
+ * GeoScript Compiler v2.3.2 - External Files & App Console
+ */
+
+// --- 1. Settings (Auto Run Enabled by Default) ---
+const SETTINGS = { autoRun: true, hideConsole: false, boldPoints: false };
+
+// --- 2. Console Helper ---
+// Redirect output to the in-app console div
+function appConsole(msg, type='info') {
+    if (SETTINGS.hideConsole) return;
+    const div = document.getElementById('console-output');
+    const entry = document.createElement('div');
+    
+    if (type === 'error') {
+        entry.style.color = '#f87171'; // Red
+        entry.innerText = `✖ ${msg}`;
+    } else if (type === 'success') {
+        entry.style.color = '#4ade80'; // Green
+        entry.innerText = `✔ ${msg}`;
+    } else if (type === 'warn') {
+        entry.style.color = '#facc15'; // Yellow
+        entry.innerText = `⚠ ${msg}`;
+    } else {
+        entry.style.color = '#94a3b8'; // Gray
+        entry.innerText = `> ${msg}`;
+    }
+    
+    div.appendChild(entry);
+    div.scrollTop = div.scrollHeight;
+}
+
+// Clear console
+function clearAppConsole() {
+    const div = document.getElementById('console-output');
+    div.innerHTML = '';
+}
+
+// --- 3. Math Library ---
+const PI = Math.PI, EPSILON = 1e-10;
+class GMath {
+    static dist(p1, p2) { return Math.hypot(p2.x - p1.x, p2.y - p1.y); }
+    static midpoint(p1, p2) { return { x: (p1.x + p2.x)/2, y: (p1.y + p2.y)/2 }; }
+    static slope(l) { if (Math.abs(l.p2.x - l.p1.x) < EPSILON) return Infinity; return (l.p2.y - l.p1.y) / (l.p2.x - l.p1.x); }
+    static angle(A, B, C) { 
+        const BA = { x: A.x - B.x, y: A.y - B.y }, BC = { x: C.x - B.x, y: C.y - B.y };
+        const dot = BA.x * BC.x + BA.y * BC.y, cross = BA.x * BC.y - BA.y * BC.x;
+        return Math.abs(Math.atan2(cross, dot) * 180 / PI);
+    }
+    static rotate(p, c, deg) {
+        const rad = deg * PI / 180, cos = Math.cos(rad), sin = Math.sin(rad), dx = p.x - c.x, dy = p.y - c.y;
+        return { x: c.x + dx * cos - dy * sin, y: c.y + dx * sin + dy * cos };
+    }
+    static dilate(p, c, k) { return { x: c.x + (p.x - c.x) * k, y: c.y + (p.y - c.y) * k }; }
+    static translate(p, v) { return { x: p.x + (v.p2.x - v.p1.x), y: p.y + (v.p2.y - v.p1.y) }; }
+    static add(v1, v2) { 
+        const dx = (v1.p2.x - v1.p1.x) + (v2.p2.x - v2.p1.x), dy = (v1.p2.y - v1.p1.y) + (v2.p2.y - v2.p1.y);
+        return { type: 'vector', p1: {x:0, y:0}, p2: {x: dx, y: dy} };
+    }
+    static intersect(o1, o2) {
+        const d1 = (o1.p1.y - o1.p2.y)*o1.p1.x + (o1.p2.x - o1.p1.x)*o1.p1.y;
+        const d2 = (o2.p1.y - o2.p2.y)*o2.p1.x + (o2.p2.x - o2.p1.x)*o2.p1.y;
+        const det = (o1.p1.y - o1.p2.y)*(o2.p2.x - o2.p1.x) - (o2.p1.y - o2.p2.y)*(o1.p2.x - o1.p1.x);
+        if (Math.abs(det) < EPSILON) return null;
+        const x = (d1*(o2.p2.x - o2.p1.x) - d2*(o1.p2.x - o1.p1.x)) / det;
+        const y = (d1*(o2.p1.y - o2.p2.y) - d2*(o1.p1.y - o1.p2.y)) / det;
+        return { x: x, y: y };
+    }
+    static project(p, l) {
+        const dx = l.p2.x - l.p1.x, dy = l.p2.y - l.p1.y;
+        if (dx===0 && dy===0) return l.p1;
+        const t = ((p.x - l.p1.x) * dx + (p.y - l.p1.y) * dy) / (dx*dx + dy*dy);
+        return { x: l.p1.x + t * dx, y: l.p1.y + t * dy };
+    }
+    static reflect(p, axis) { const proj = GMath.project(p, axis); return { x: 2*proj.x - p.x, y: 2*proj.y - p.y }; }
+    static circumcenter(A, B, C) {
+        const D = 2 * (A.x * (B.y - C.y) + B.x * (C.y - A.y) + C.x * (A.y - B.y));
+        const Ux = ((A.x**2 + A.y**2)*(B.y - C.y) + (B.x**2 + B.y**2)*(C.y - A.y) + (C.x**2 + C.y**2)*(A.y - B.y)) / D;
+        const Uy = ((A.x**2 + A.y**2)*(C.x - B.x) + (B.x**2 + B.y**2)*(A.x - C.x) + (C.x**2 + C.y**2)*(B.x - A.x)) / D;
+        return { x: Ux, y: Uy };
+    }
+    static pointOn(obj, t) {
+        if (obj.type === 'circle') {
+            const angle = t * 2 * PI;
+            return { x: obj.center.x + obj.r * Math.cos(angle), y: obj.center.y + obj.r * Math.sin(angle) };
+        }
+        return {x:0, y:0};
+    }
+    static centroid(A,B,C) { return {x:(A.x+B.x+C.x)/3, y:(A.y+B.y+C.y)/3}; }
+    static incenter(A,B,C) { 
+        const a=GMath.dist(B,C), b=GMath.dist(A,C), c=GMath.dist(A,B), p=a+b+c;
+        return {x:(a*A.x+b*B.x+c*C.x)/p, y:(a*A.y+b*B.y+c*C.y)/p};
+    }
+    static orthocenter(A,B,C) { 
+        const O = GMath.circumcenter(A,B,C);
+        return {x: A.x+B.x+C.x - 2*O.x, y: A.y+B.y+C.y - 2*O.y}; 
+    }
+    static tangent(c, p) {
+        const d = GMath.dist(c.center, p);
+        if (d < c.r) return [];
+        const a = Math.acos(c.r / d), base = Math.atan2(c.center.y - p.y, c.center.x - p.x);
+        const t1 = { x: c.center.x + c.r * Math.cos(base + a + PI), y: c.center.y + c.r * Math.sin(base + a + PI) };
+        const t2 = { x: c.center.x + c.r * Math.cos(base - a + PI), y: c.center.y + c.r * Math.sin(base - a + PI) };
+        return [{ type: 'segment', p1: p, p2: t1 }, { type: 'segment', p1: p, p2: t2 }];
+    }
+    static bisector(A, B, C) {
+        if(!C) { 
+            const m = GMath.midpoint(A, B);
+            const dx = B.x - A.x, dy = B.y - A.y;
+            return { type: 'line', p1: m, p2: {x: m.x - dy, y: m.y + dx} };
+        } else { 
+            const BA = {x: A.x-B.x, y: A.y-B.y}, BC = {x: C.x-B.x, y: C.y-B.y};
+            const la = Math.hypot(BA.x, BA.y), lc = Math.hypot(BC.x, BC.y);
+            const dir = {x: BA.x/la + BC.x/lc, y: BA.y/la + BC.y/lc};
+            return { type: 'ray', p1: B, p2: {x: B.x+dir.x, y: B.y+dir.y} };
+        }
+    }
+    static area(p) {
+        let a = 0, pts = p.points;
+        for(let i=0; i<pts.length; i++) {
+            let j = (i+1)%pts.length;
+            a += pts[i].x * pts[j].y; a -= pts[j].x * pts[i].y;
+        }
+        return Math.abs(a/2);
+    }
+    static parallel(line, p) {
+         const dx = line.p2.x - line.p1.x, dy = line.p2.y - line.p1.y;
+         return { type: 'line', p1: p, p2: {x: p.x + dx, y: p.y + dy} };
+    }
+    static perpendicular(line, p) {
+        const dx = line.p2.x - line.p1.x, dy = line.p2.y - line.p1.y;
+        const p2 = { x: p.x - dy, y: p.y + dx };
+        return { type: 'line', p1: p, p2: p2 };
+    }
+}
+
+// --- 4. Parser ---
+const SYMBOLS = {}, OBJECTS = []; 
+class Parser {
+    constructor(code) { this.lines = code.split('\n'); }
+    parse() {
+        SYMBOLS['Origin'] = { type: 'point', x: 0, y: 0 };
+        OBJECTS.length = 0;
+        for (let i = 0; i < this.lines.length; i++) {
+            let line = this.lines[i].trim().split('//')[0].split('/*')[0].trim();
+            if (!line) continue;
+            try { this.parseStatement(line); } catch (e) { 
+                if (!SETTINGS.autoRun) appConsole(`Line ${i+1}: ${e.message}`, 'error'); 
+            }
+        }
+        OBJECTS.sort((a, b) => (a.layer || 0) - (b.layer || 0));
+        return OBJECTS;
+    }
+    parseStatement(line) {
+        let style = {};
+        if (line.includes('{')) {
+            const parts = line.split('{');
+            const styleStr = parts[1].replace('}', '');
+            line = parts[0].trim();
+            style = this.parseStyle(styleStr);
+        }
+        let varName = null, expr = line;
+        if (line.includes('=') && !line.includes('==')) {
+            const parts = line.split('=');
+            varName = parts[0].trim();
+            expr = parts.slice(1).join('=').trim();
+        }
+        const res = this.evaluate(expr);
+        if (res) {
+            const arr = Array.isArray(res) ? res : [res];
+            arr.forEach(r => { Object.assign(r, style); if(r.type!=='number') OBJECTS.push(r); });
+            if (varName) SYMBOLS[varName] = arr[0];
+        }
+    }
+    parseStyle(str) {
+        const s = {};
+        str.split(',').forEach(chk => {
+            const [k, v] = chk.split(':').map(x => x.trim());
+            if (k && v) s[k] = isNaN(v) ? v.replace(/"/g, '') : parseFloat(v);
+        });
+        return s;
+    }
+    evaluate(expr) {
+        expr = expr.trim();
+        if (!isNaN(expr)) return { type: 'number', value: parseFloat(expr) };
+        if (expr.startsWith('(')) return this.parseCoord(expr);
+        if (SYMBOLS[expr]) return SYMBOLS[expr];
+        const m = expr.match(/^([a-zA-Z0-9_]+)\s*\((.*)\)$/);
+        if (m) {
+            const args = this.splitArgs(m[2]).map(a => this.evaluate(a));
+            return this.execFunc(m[1], args);
+        }
+        throw new Error(`Unknown: ${expr}`);
+    }
+    parseCoord(str) { const p = str.replace(/[()]/g, '').split(','); return { type: 'point', x: parseFloat(p[0]), y: parseFloat(p[1]) }; }
+    splitArgs(str) {
+        const args = []; let d = 0, c = '';
+        for (let ch of str) {
+            if (ch === '(') d++; if (ch === ')') d--;
+            if (ch === ',' && d === 0) { args.push(c.trim()); c = ''; } else c += ch;
+        }
+        if (c) args.push(c.trim());
+        return args;
+    }
+    execFunc(name, args) {
+        const v = args.map(a => (a && a.type === 'number') ? a.value : a);
+        const n = name.toLowerCase();
+        
+        // Primitives
+        if (n === 'point') return { type: 'point', x: v[0], y: v[1] };
+        if (n === 'line') return { type: 'line', p1: v[0], p2: v[1] };
+        if (n === 'segment') return { type: 'segment', p1: v[0], p2: v[1] };
+        if (n === 'ray') return { type: 'ray', p1: v[0], p2: v[1] };
+        if (n === 'vector') return { type: 'vector', p1: v[0], p2: v[1] };
+        if (n === 'polygon') return { type: 'polygon', points: v };
+        if (n === 'circle') {
+            if (args.length === 3) return { type: 'circle', center: GMath.circumcenter(v[0], v[1], v[2]), r: GMath.dist(GMath.circumcenter(v[0], v[1], v[2]), v[0]) };
+            if (v[1].type === 'point') return { type: 'circle', center: v[0], r: GMath.dist(v[0], v[1]) };
+            return { type: 'circle', center: v[0], r: v[1] };
+        }
+        if (n === 'arc') {
+            if (args.length === 3 && v[2].type === 'point') { 
+                const c = GMath.circumcenter(v[0], v[1], v[2]), r = GMath.dist(c, v[0]);
+                return { type: 'arc', center: c, r: r, startPoint: v[0], midPoint: v[1], endPoint: v[2] };
+            }
+            return { type: 'arc', center: v[0], startPoint: v[1], endPoint: v[2], r: GMath.dist(v[0], v[1]) };
+        }
+        if (n === 'sector') return { type: 'sector', center: v[0], startPoint: v[1], endPoint: v[2], r: GMath.dist(v[0], v[1]) };
+        
+        // Ops
+        if (n === 'midpoint') return { type: 'point', ...GMath.midpoint(v[0], v[1]) };
+        if (n === 'intersect') return { type: 'point', ...GMath.intersect(v[0], v[1]) };
+        if (n === 'project') return { type: 'point', ...GMath.project(v[0], v[1]) };
+        if (n === 'reflect') return { type: 'point', ...GMath.reflect(v[0], v[1]) };
+        if (n === 'parallel') return GMath.parallel(v[0], v[1]);
+        if (n === 'perpendicular') return GMath.perpendicular(v[0], v[1]);
+        if (n === 'tangent') return GMath.tangent(v[0], v[1]);
+        if (n === 'bisector') return GMath.bisector(v[0], v[1], v[2]);
+        if (n === 'circumcenter') return { type: 'point', ...GMath.circumcenter(v[0], v[1], v[2]) };
+        if (n === 'centroid') return { type: 'point', ...GMath.centroid(v[0], v[1], v[2]) };
+        if (n === 'incenter') return { type: 'point', ...GMath.incenter(v[0], v[1], v[2]) };
+        if (n === 'orthocenter') return { type: 'point', ...GMath.orthocenter(v[0], v[1], v[2]) };
+        if (n === 'rotate') {
+            const c = v[2] || {x:0, y:0};
+            if (v[0].type === 'polygon') return { type: 'polygon', points: v[0].points.map(p => GMath.rotate(p, c, v[1])) };
+            if (v[0].type === 'circle') return { type: 'circle', center: GMath.rotate(v[0].center, c, v[1]), r: v[0].r };
+            return { type: 'point', ...GMath.rotate(v[0], c, v[1]) };
+        }
+        if (n === 'translate') return { type: 'point', ...GMath.translate(v[0], v[1]) };
+        if (n === 'dilate') {
+            if (v[0].type === 'circle') return { type: 'circle', center: GMath.dilate(v[0].center, v[2], v[1]), r: v[0].r * Math.abs(v[1]) };
+            return { type: 'point', ...GMath.dilate(v[0], v[2], v[1]) };
+        }
+        if (n === 'pointon') return { type: 'point', ...GMath.pointOn(v[0], v[1]) };
+        if (n === 'locus') return { type: 'locus', visible: false };
+        if (n === 'add') return GMath.add(v[0], v[1]);
+        if (n === 'distance') return { type: 'number', value: GMath.dist(v[0], v[1]) };
+        if (n === 'angle') return { type: 'number', value: GMath.angle(v[0], v[1], v[2]) };
+        if (n === 'slope') return { type: 'number', value: GMath.slope(v[0]) };
+        if (n === 'area') return { type: 'number', value: GMath.area(v[0]) };
+        throw new Error(`Func? ${name}`);
+    }
+}
+
+// --- 5. Renderer ---
+const canvas = document.getElementById('geoCanvas');
+const ctx = canvas.getContext('2d');
+const camera = { x: canvas.width/2, y: canvas.height/2, zoom: 40 };
+let isDragging = false, isResizing = false, lastMouse = { x: 0, y: 0 };
+let placedLabels = []; 
+
+function resizeCanvas() { canvas.width = canvas.parentElement.clientWidth; canvas.height = canvas.parentElement.clientHeight; if(camera.x===0){camera.x=canvas.width/2; camera.y=canvas.height/2;} draw(); }
+function w2s(x, y) { return { x: camera.x + x * camera.zoom, y: camera.y - y * camera.zoom }; }
+function s2w(sx, sy) { return { x: (sx - camera.x) / camera.zoom, y: -(sy - camera.y) / camera.zoom }; }
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    placedLabels = []; 
+    // Grid
+    const o = w2s(0,0);
+    ctx.beginPath(); ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+    ctx.moveTo(o.x, 0); ctx.lineTo(o.x, canvas.height); ctx.moveTo(0, o.y); ctx.lineTo(canvas.width, o.y); ctx.stroke();
+
+    OBJECTS.forEach(obj => {
+        if (obj.visible === false) return;
+        ctx.save();
+        if (obj.type === 'point') drawPoint(obj);
+        else if (['line','segment','ray'].includes(obj.type)) drawLine(obj, obj.type);
+        else if (obj.type === 'circle') drawCircle(obj);
+        else if (obj.type === 'polygon') drawPolygon(obj);
+        else if (obj.type === 'vector') drawVector(obj);
+        else if (obj.type === 'arc') drawArc(obj);
+        else if (obj.type === 'sector') drawSector(obj);
+        ctx.restore();
+    });
+    OBJECTS.forEach(obj => { if (obj.label && obj.visible !== false) drawSmartLabel(obj); });
+}
+
+function resolveStyle(obj) {
+    const stroke = obj.stroke || obj.color || 'black';
+    let fill = obj.fillColor;
+    let fillOp = obj.fillOpacity;
+    if (!fill && fillOp !== undefined) fill = stroke;
+    fill = fill || 'transparent';
+    if (fillOp === undefined) {
+        if (fill === 'transparent') fillOp = 0;
+        else if (fill.toLowerCase().startsWith('rgba')) fillOp = 1; 
+        else fillOp = 0.1;
+    }
+    return { stroke: stroke, width: obj.strokeWidth !== undefined ? obj.strokeWidth : (obj.width || 2), dash: obj.dash, fill: fill, fillOp: fillOp, strokeOp: obj.opacity !== undefined ? obj.opacity : 1.0, ptSize: obj.size || 4, ptStyle: obj.style || 'dot' };
+}
+
+function setStroke(s) { ctx.strokeStyle = s.stroke; ctx.lineWidth = s.width; ctx.globalAlpha = s.strokeOp; if (s.dash) ctx.setLineDash([s.dash*2, s.dash]); else ctx.setLineDash([]); }
+function setFill(s) { ctx.fillStyle = s.fill; ctx.globalAlpha = s.fillOp; }
+
+function drawPoint(p) {
+    if (!p || typeof p.x !== 'number') return;
+    const s = resolveStyle(p), pos = w2s(p.x, p.y);
+    let r = s.ptSize;
+    if(SETTINGS.boldPoints) { r = Math.max(r, 6); s.width = 2; s.stroke = 'white'; s.strokeOp = 1; }
+    ctx.beginPath();
+    if (s.ptStyle === 'cross') {
+        setStroke(s); ctx.moveTo(pos.x - r, pos.y - r); ctx.lineTo(pos.x + r, pos.y + r); ctx.moveTo(pos.x + r, pos.y - r); ctx.lineTo(pos.x - r, pos.y + r); ctx.stroke();
+    } else if (s.ptStyle === 'circle') {
+        setStroke(s); ctx.arc(pos.x, pos.y, r, 0, PI*2); ctx.stroke();
+    } else {
+        ctx.fillStyle = s.stroke; ctx.globalAlpha = s.strokeOp; ctx.arc(pos.x, pos.y, r, 0, PI*2); ctx.fill();
+        if(SETTINGS.boldPoints) { ctx.strokeStyle='white'; ctx.lineWidth=2; ctx.stroke(); }
+    }
+}
+
+function drawLine(l, type) {
+    if (!l.p1 || !l.p2) return;
+    const s = resolveStyle(l), p1 = w2s(l.p1.x, l.p1.y), p2 = w2s(l.p2.x, l.p2.y);
+    setStroke(s); ctx.beginPath();
+    if (type === 'segment' || type === 'vector') { ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); } 
+    else {
+        const dx = p2.x - p1.x, dy = p2.y - p1.y, len = Math.hypot(dx, dy);
+        if (len > 0.1) { const ux = dx/len, uy = dy/len, EXT = 5000; let x1=p1.x, y1=p1.y, x2=p2.x, y2=p2.y; if (type === 'line') { x1-=ux*EXT; y1-=uy*EXT; } x2+=ux*EXT; y2+=uy*EXT; ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); }
+    }
+    ctx.stroke();
+}
+
+function drawCircle(c) {
+    if (!c.center) return;
+    const st = resolveStyle(c), pos = w2s(c.center.x, c.center.y), r = c.r * camera.zoom;
+    ctx.beginPath(); ctx.arc(pos.x, pos.y, r, 0, PI*2);
+    if (st.fill !== 'transparent') { ctx.save(); setFill(st); ctx.fill(); ctx.restore(); }
+    if (st.width > 0) { ctx.save(); setStroke(st); ctx.stroke(); ctx.restore(); }
+}
+
+function drawPolygon(poly) {
+    if (!poly.points || poly.points.length < 2) return;
+    if (poly.points.some(p => !p || typeof p.x !== 'number')) return;
+    const st = resolveStyle(poly), pts = poly.points.map(p => w2s(p.x, p.y));
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); for(let i=1; i<pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y); ctx.closePath();
+    if (st.fill !== 'transparent') { ctx.save(); setFill(st); ctx.fill(); ctx.restore(); }
+    if (st.width > 0) { ctx.save(); setStroke(st); ctx.stroke(); ctx.restore(); }
+}
+
+function drawArc(a) {
+    if (!a.center) return;
+    const st = resolveStyle(a), pos = w2s(a.center.x, a.center.y), r = a.r * camera.zoom;
+    let sa = 0, ea = 2*PI;
+    if (a.startPoint) {
+        const s = w2s(a.startPoint.x, a.startPoint.y), e = w2s(a.endPoint.x, a.endPoint.y);
+        sa = Math.atan2(s.y - pos.y, s.x - pos.x); ea = Math.atan2(e.y - pos.y, e.x - pos.x);
+        ctx.beginPath(); ctx.arc(pos.x, pos.y, r, sa, ea, true);
+    } else {
+        ctx.beginPath(); ctx.arc(pos.x, pos.y, r, 0, PI*2);
+    }
+    if (st.width > 0) { ctx.save(); setStroke(st); ctx.stroke(); ctx.restore(); }
+}
+
+function drawSector(sec) {
+    if(!sec.center || !sec.startPoint || !sec.endPoint) return;
+    const st = resolveStyle(sec), pos = w2s(sec.center.x, sec.center.y), r = sec.r * camera.zoom;
+    const s = w2s(sec.startPoint.x, sec.startPoint.y), e = w2s(sec.endPoint.x, sec.endPoint.y);
+    const sa = Math.atan2(s.y - pos.y, s.x - pos.x), ea = Math.atan2(e.y - pos.y, e.x - pos.x);
+    ctx.beginPath(); ctx.moveTo(pos.x, pos.y); ctx.arc(pos.x, pos.y, r, sa, ea, true); ctx.closePath();
+    if (st.fill !== 'transparent') { ctx.save(); setFill(st); ctx.fill(); ctx.restore(); }
+    if (st.width > 0) { ctx.save(); setStroke(st); ctx.stroke(); ctx.restore(); }
+}
+
+function drawVector(v) {
+    if (!v.p1 || !v.p2) return;
+    const st = resolveStyle(v), p1 = w2s(v.p1.x, v.p1.y), p2 = w2s(v.p2.x, v.p2.y);
+    ctx.save(); setStroke(st); ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+    const ang = Math.atan2(p2.y - p1.y, p2.x - p1.x), len = 10;
+    ctx.beginPath(); ctx.moveTo(p2.x, p2.y); ctx.lineTo(p2.x - len*Math.cos(ang-PI/6), p2.y - len*Math.sin(ang-PI/6)); ctx.lineTo(p2.x - len*Math.cos(ang+PI/6), p2.y - len*Math.sin(ang+PI/6));
+    ctx.fillStyle = st.stroke; ctx.globalAlpha = st.strokeOp; ctx.fill(); ctx.restore();
+}
+
+function drawSmartLabel(obj) {
+    if (!obj || typeof obj.x !== 'number' && !obj.center) return;
+    let p = obj.center || obj;
+    const s = w2s(p.x, p.y);
+    ctx.font = "bold 12px sans-serif";
+    const tm = ctx.measureText(obj.label), w = tm.width, h = 12;
+    const offsets = [{x: 10, y: -10}, {x: -10-w, y: -10}, {x: 10, y: 18}, {x: -10-w, y: 18}, {x: 0, y: -18}, {x: 0, y: 22}, {x: 12, y: 4}, {x: -12-w, y: 4}];
+    let bestPos = { x: s.x + offsets[0].x, y: s.y + offsets[0].y }, minOverlap = Infinity;
+    for (let off of offsets) {
+        const cx = s.x + off.x, cy = s.y + off.y; let overlapArea = 0;
+        if (cx < 0 || cy - h < 0 || cx + w > canvas.width || cy > canvas.height) overlapArea += 500;
+        for (let l of placedLabels) {
+            const x_overlap = Math.max(0, Math.min(cx+w, l.x+l.w) - Math.max(cx, l.x));
+            const y_overlap = Math.max(0, Math.min(cy, l.y+l.h) - Math.max(cy-h, l.y)); 
+            if (x_overlap > 0 && y_overlap > 0) overlapArea += (x_overlap * y_overlap) + 100;
+        }
+        if (overlapArea < minOverlap) { minOverlap = overlapArea; bestPos = {x: cx, y: cy}; if (overlapArea === 0) break; }
+    }
+    ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,0.8)"; ctx.fillStyle = "black";
+    ctx.strokeText(obj.label, bestPos.x, bestPos.y); ctx.fillText(obj.label, bestPos.x, bestPos.y);
+    placedLabels.push({ x: bestPos.x, y: bestPos.y - h, w: w, h: h });
+}
+
+// --- UI Logic (Fetch & Events) ---
+const input = document.getElementById('code-input'), highlight = document.getElementById('code-highlight');
+const lineNums = document.getElementById('line-numbers'), autoBox = document.getElementById('autocomplete');
+const KEYWORDS = ['Point','Line','Segment','Ray','Vector','Circle','Polygon','Midpoint','Intersect','Project','Reflect','Rotate','Dilate','Translate','Distance','Angle','Slope','Area','label','color','size','style','fillColor','visible','Circumcenter','PointOn','Locus','Tangent','Bisector','Arc','Sector','Incenter','Centroid','Orthocenter','Add','strokeWidth','dash','fillOpacity'];
+
+// Load Example from External File
+async function loadExample(filename) {
+    try {
+        appConsole(`Loading ${filename}...`);
+        // If it's a fresh load (basic.geo), don't error loudly if missing, just use default string
+        if (filename === 'basic.geo') {
+             try {
+                 const r = await fetch(`./examples/${filename}`);
+                 if(r.ok) {
+                     input.value = await r.text();
+                 } else {
+                     input.value = `// Welcome to GeoScript\n// Start typing to create geometry...\n\nP1 = Point(0, 0) { label: "Origin" }`;
+                 }
+             } catch(e) {
+                 input.value = `// Welcome to GeoScript\n// Start typing to create geometry...\n\nP1 = Point(0, 0) { label: "Origin" }`;
+             }
+        } else {
+            const response = await fetch(`./examples/${filename}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const text = await response.text();
+            input.value = text;
+        }
+        updateEditor();
+        compile();
+    } catch (e) {
+        appConsole(`Failed to load ${filename}: ${e.message}`, 'error');
+        // If it was a user click, alert them
+        if(filename !== 'basic.geo') alert(`Could not load example: ${filename}\nEnsure you are running on a server (Live Server/GitHub Pages)`);
+    }
+}
+
+function updateEditor() {
+    lineNums.innerHTML = input.value.split('\n').map((_, i) => `<div class="line-number-item" onclick="toggleBreak(${i})">${i+1}</div>`).join('');
+    highlight.innerHTML = tokenize(input.value) + '<br>'; 
+}
+input.addEventListener('scroll', () => { highlight.scrollTop = input.scrollTop; highlight.scrollLeft = input.scrollLeft; lineNums.scrollTop = input.scrollTop; });
+input.addEventListener('input', () => { updateEditor(); checkAutocomplete(); if(SETTINGS.autoRun) compile(); });
+input.addEventListener('keydown', e => {
+    if(e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '    '); }
+    if(e.key==='Enter' && autoBox.style.display==='block'){ e.preventDefault(); autoBox.style.display='none'; }
+});
+
+function checkAutocomplete() {
+    const val = input.value, end = input.selectionStart;
+    let start = end - 1; while(start >= 0 && /[a-zA-Z]/.test(val[start])) start--;
+    const word = val.substring(start + 1, end);
+    if (word.length < 2) { autoBox.style.display = 'none'; return; }
+    const matches = KEYWORDS.filter(k => k.toLowerCase().startsWith(word.toLowerCase()));
+    if (matches.length > 0) {
+        const lines = input.value.substring(0, input.selectionStart).split("\n");
+        const x = lines[lines.length - 1].length * 8 + 45, y = lines.length * 22 - input.scrollTop;
+        autoBox.style.left = Math.min(x, 300) + 'px'; autoBox.style.top = (y + 10) + 'px'; autoBox.style.display = 'block';
+        autoBox.innerHTML = matches.map(m => `<div class="suggestion-item" onclick="insertAuto('${m}', ${start+1}, ${end})">${m} <span class="suggestion-type">Cmd</span></div>`).join('');
+    } else autoBox.style.display = 'none';
+}
+window.insertAuto = (t, s, e) => { input.value = input.value.substring(0, s) + t + input.value.substring(e); autoBox.style.display = 'none'; input.focus(); updateEditor(); };
+function tokenize(c) { return c.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/(\/\/.*)|("[^"]*")|(\b\d+(\.\d+)?\b)|(\b(Point|Line|Circle|Polygon|Segment|Ray|Vector|Arc|Sector)\b)|(\b(Midpoint|Intersect|Project|Reflect|Rotate|Dilate|Translate|Distance|Angle|Slope|Area|Circumcenter|PointOn|Locus|Tangent|Bisector|Incenter|Centroid|Orthocenter)\b)|(\b(label|color|size|style|fillColor|fillOpacity|strokeWidth|dash)\b)/g, (m, c1, c2, n, k1, k2, f1, f2, p) => {
+    if (c1) return `<span class="tok-comment">${c1}</span>`; if (c2) return `<span class="tok-string">${c2}</span>`;
+    if (n) return `<span class="tok-number">${n}</span>`; if (k1) return `<span class="tok-keyword">${k1}</span>`;
+    if (f1) return `<span class="tok-function">${f1}</span>`; if (p) return `<span class="tok-prop">${p}</span>`;
+    return m;
+}); }
+
+function compile() {
+    clearAppConsole();
+    try { const p = new Parser(input.value); p.parse(); draw();
+        appConsole(`Compiled successfully. ${OBJECTS.length} objects generated.`, 'success');
+    } catch(e) { 
+        appConsole(e.message, 'error');
+    }
+}
+
+function toggleMenu(id) { document.querySelectorAll('.dropdown-content').forEach(d => d.classList.remove('show')); document.getElementById(id).classList.toggle('show'); }
+function toggleSetting(k) { 
+    SETTINGS[k] = !SETTINGS[k]; 
+    document.getElementById(`check-${k}`).classList.toggle('checked'); 
+    if(k==='autoRun' && SETTINGS[k]) compile(); 
+    if(k==='hideConsole') document.getElementById('console-output').style.display = SETTINGS[k]?'none':'block'; 
+    if(k==='boldPoints') draw();
+}
+window.addEventListener('click', e => { if(!e.target.closest('.group')) document.querySelectorAll('.dropdown-content').forEach(d => d.classList.remove('show')); });
+function downloadImage() { const l = document.createElement('a'); l.download = 'geo.png'; l.href = canvas.toDataURL(); l.click(); }
+function downloadSVG() { alert("SVG export not implemented in this view."); }
+
+const editorWrapper = document.querySelector('.editor-wrapper');
+resizer.addEventListener('mousedown', () => { isResizing = true; document.body.style.cursor = 'col-resize'; });
+window.addEventListener('mouseup', () => { isResizing = false; document.body.style.cursor = 'default'; isDragging = false; });
+window.addEventListener('mousemove', e => { 
+    if(isResizing){ editorWrapper.style.width = (e.clientX/window.innerWidth)*100+'%'; resizeCanvas(); }
+    if(isDragging){ camera.x+=e.clientX-lastMouse.x; camera.y+=e.clientY-lastMouse.y; lastMouse={x:e.clientX,y:e.clientY}; draw(); }
+});
+canvas.addEventListener('mousedown', e => { isDragging = true; lastMouse = { x: e.clientX, y: e.clientY }; });
+canvas.addEventListener('wheel', e => { e.preventDefault(); const z = Math.exp((e.deltaY<0?1:-1)*0.1); camera.x-=(e.clientX-canvas.getBoundingClientRect().left-camera.x)*(z-1); camera.y-=(e.clientY-canvas.getBoundingClientRect().top-camera.y)*(z-1); camera.zoom*=z; draw(); }, { passive: false });
+
+// Init
+window.onload = () => { 
+    // Setup Checkboxes UI based on default settings
+    if(SETTINGS.autoRun) document.getElementById('check-autoRun').classList.add('checked');
+    
+    resizeCanvas(); 
+    window.addEventListener('resize', resizeCanvas); 
+    loadExample('basic.geo'); 
+};
+</script>
+</body>
+</html>
